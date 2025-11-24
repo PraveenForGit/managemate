@@ -11,7 +11,7 @@ interface ProjectsListProps {
 }
 
 export function ProjectsList({ submissions, teams, scores, currentUserId, sortFilter, onEvaluateClick }: ProjectsListProps) {
-  // Filter according to sortFilter
+  // Filter according to the conditions
   let filteredSubs = submissions;
   if (sortFilter === 'scored') {
     filteredSubs = submissions.filter(s => scores.some(score => score.submissionId === s.id && score.judgeId === currentUserId));

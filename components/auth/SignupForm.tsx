@@ -1,4 +1,4 @@
-import React, { FormEvent } from 'react';
+import { FormEvent } from 'react';
 
 type Role = 'participant' | 'admin' | 'judge' | '';
 

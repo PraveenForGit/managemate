@@ -1,8 +1,7 @@
-import React from 'react';
 import { SubmissionAdmin } from '@/types';
 
 interface ReviewModalProps {
-  submission: SubmissionAdmin;  // Use SubmissionAdmin here
+  submission: SubmissionAdmin; 
   adminComments: string;
   setAdminComments: (comments: string) => void;
   onClose: () => void;

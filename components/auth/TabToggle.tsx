@@ -1,5 +1,3 @@
-import React from 'react';
-
 interface TabToggleProps {
   activeTab: 'login' | 'signup';
   onChange: (tab: 'login' | 'signup') => void;

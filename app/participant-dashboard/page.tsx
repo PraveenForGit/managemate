@@ -39,7 +39,7 @@ const ParticipantDashboardPage = () => {
     description: ''
   });
 
-  // Load current user from localStorage
+  // Load current user from localStorage(Can connect any Database later)
   useEffect(() => {
     const savedUser = localStorage.getItem('currentUser');
     if (!savedUser) {
@@ -54,7 +54,7 @@ const ParticipantDashboardPage = () => {
     setCurrentUser(user);
   }, []);
 
-  // Load participant data after currentUser is set
+  // Loads participant data after currentUser is set
   useEffect(() => {
     if (!currentUser) return;
 
@@ -133,7 +133,7 @@ const ParticipantDashboardPage = () => {
     e.preventDefault();
     if (!currentTeam || !currentUser) return;
 
-    // Validate
+    // Validates wheather all the required fields are submitted or not
     if (!submissionData.projectTitle || !submissionData.problemStatement || !submissionData.githubLink || !submissionData.readme) {
       alert('Please fill in all required fields.');
       return;
@@ -153,7 +153,8 @@ const ParticipantDashboardPage = () => {
       buildLogs: submissionData.buildLogs,
       adminComments: '',
       status: 'pending',
-      createdAt: new Date().toISOString()
+      createdAt: new Date().toISOString(),
+      updatedAt: ''
     };
     submissions.push(newSubmission);
     localStorage.setItem('submissions', JSON.stringify(submissions));

@@ -1,5 +1,3 @@
-import React from 'react';
-
 type Tab = 'submissions' | 'judges' | 'timeline' | 'leaderboard';
 
 interface TabsProps {

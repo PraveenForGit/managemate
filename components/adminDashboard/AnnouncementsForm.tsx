@@ -1,4 +1,4 @@
-import React, { FormEvent } from 'react';
+import { FormEvent } from 'react';
 
 interface AnnouncementsFormProps {
   onSubmit: (title: string, content: string, date: string) => void;

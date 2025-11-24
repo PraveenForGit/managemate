@@ -1,4 +1,3 @@
-import React from 'react';
 import { LeaderboardItem } from '@/types';
 
 interface LeaderboardProps {

@@ -1,129 +1,50 @@
 'use client';
 
-import React, { useState, FormEvent } from 'react';
+import Link from 'next/link';
 
-import { TabToggle } from '@/components/auth/TabToggle';
-import { LoginForm } from '@/components/auth/LoginForm';
-import { SignupForm } from '@/components/auth/SignupForm';
-import { MessageBox } from '@/components/auth/MessageBox';
-import { useRouter } from 'next/navigation';
-
-type Role = 'participant' | 'admin' | 'judge' | '';
-
-export default function AuthPage() {
-  const router = useRouter();
-
-  const [activeTab, setActiveTab] = useState<'login' | 'signup'>('login');
-
-  // Login states
-  const [loginEmail, setLoginEmail] = useState('');
-  const [loginPassword, setLoginPassword] = useState('');
-  const [loginRole, setLoginRole] = useState<Role>('');
-
-  // Signup states
-  const [signupName, setSignupName] = useState('');
-  const [signupEmail, setSignupEmail] = useState('');
-  const [signupPassword, setSignupPassword] = useState('');
-  const [signupRole, setSignupRole] = useState<Role>('');
-
-  // Message state
-  const [message, setMessage] = useState<{ text: string; type: 'success' | 'error' | '' }>({ text: '', type: '' });
-
-  // Helpers to save and read users
-  const getUsers = (): any[] => {
-    if (typeof window === 'undefined') return [];
-    const usersJson = localStorage.getItem('users') || '[]';
-    return JSON.parse(usersJson);
-  };
-
-  const setUsers = (users: any[]) => {
-    localStorage.setItem('users', JSON.stringify(users));
-  };
-
-  const handleLogin = (e: FormEvent) => {
-    e.preventDefault();
-    if (!loginEmail || !loginPassword || !loginRole) {
-      setMessage({ text: 'Please fill in all fields', type: 'error' });
-      return;
-    }
-    const users = getUsers();
-    const user = users.find((u: any) => u.email === loginEmail && u.role === loginRole);
-    if (!user || user.password !== loginPassword) {
-      setMessage({ text: 'Invalid credentials', type: 'error' });
-      return;
-    }
-    const currentUser = { ...user };
-    delete currentUser.password;
-    localStorage.setItem('currentUser', JSON.stringify(currentUser));
-    setMessage({ text: 'Login successful! Redirecting...', type: 'success' });
-    setTimeout(() => router.push(`/${loginRole}-dashboard`), 1000);
-  };
-
-  const handleSignup = (e: FormEvent) => {
-    e.preventDefault();
-    if (!signupName || !signupEmail || !signupPassword || !signupRole) {
-      setMessage({ text: 'Please fill in all fields', type: 'error' });
-      return;
-    }
-    if (signupPassword.length < 6) {
-      setMessage({ text: 'Password must be at least 6 characters', type: 'error' });
-      return;
-    }
-    const users = getUsers();
-    if (users.some((u: any) => u.email === signupEmail)) {
-      setMessage({ text: 'Email already registered', type: 'error' });
-      return;
-    }
-    const newUser = {
-      id: Date.now().toString(),
-      name: signupName,
-      email: signupEmail,
-      password: signupPassword,
-      role: signupRole,
-    };
-    users.push(newUser);
-    setUsers(users);
-    setMessage({ text: 'Account created successfully! Please login.', type: 'success' });
-    setTimeout(() => setActiveTab('login'), 1500);
-  };
-
+const LandingPage = () => {
   return (
-    <div className="min-h-screen flex items-center justify-center bg-linear-to-br from-slate-900 via-slate-800 to-slate-900 p-8 relative overflow-hidden">
-      <div className="absolute top-[-50%] left-[-50%] w-[200%] h-[200%] bg-gradient-radial from-indigo-500/10 to-transparent animate-spin-slow rounded-full"></div>
-      <div className="relative bg-slate-800 bg-opacity-95 border border-indigo-600 rounded-3xl p-12 max-w-md w-full shadow-lg backdrop-blur-md z-10">
-        <header className="text-center mb-8">
-          <h1 className="text-4xl font-extrabold bg-linear-to-r from-indigo-500 via-purple-500 to-pink-500 bg-clip-text text-transparent mb-1">ManageMate</h1>
-          <p className="text-slate-400">Your aid in management</p>
-        </header>
+    <div className="min-h-screen bg-dark-900 text-white font-sans selection:bg-brand-500 selection:text-white overflow-hidden relative">
 
-        <TabToggle activeTab={activeTab} onChange={setActiveTab} />
-
-        {activeTab === 'login' ? (
-          <LoginForm
-            email={loginEmail}
-            password={loginPassword}
-            role={loginRole}
-            onEmailChange={setLoginEmail}
-            onPasswordChange={setLoginPassword}
-            onRoleChange={setLoginRole}
-            onSubmit={handleLogin}
-          />
-        ) : (
-          <SignupForm
-            name={signupName}
-            email={signupEmail}
-            password={signupPassword}
-            role={signupRole}
-            onNameChange={setSignupName}
-            onEmailChange={setSignupEmail}
-            onPasswordChange={setSignupPassword}
-            onRoleChange={setSignupRole}
-            onSubmit={handleSignup}
-          />
-        )}
-
-        <MessageBox message={message} />
+      <div className="absolute top-0 left-0 w-full h-full overflow-hidden z-0 pointer-events-none">
+        <div className="absolute top-[-10%] right-[-5%] w-[500px] h-[500px] bg-brand-600/20 rounded-full blur-[120px]"></div>
+        <div className="absolute bottom-[-10%] left-[-10%] w-[600px] h-[600px] bg-indigo-600/10 rounded-full blur-[120px]"></div>
       </div>
+
+      <nav className="relative z-10 max-w-7xl mx-auto px-6 py-6 flex justify-between items-center">
+        <div className="flex items-center gap-2">
+          <div className="w-8 h-8 bg-brand-500 rounded-lg flex items-center justify-center font-bold text-white shadow-lg shadow-brand-500/20">
+            M
+          </div>
+          <span className="text-xl font-bold tracking-tight">
+            Manage<span className="text-brand-500">Mate</span>
+          </span>
+        </div>
+      </nav>
+
+      <main className="relative z-10 max-w-7xl mx-auto px-6 flex flex-col items-center justify-center min-h-[80vh] text-center">
+        <h1 className="text-5xl md:text-7xl font-black tracking-tight mb-6 bg-clip-text text-transparent bg-linear-to-b from-white to-slate-400">
+          Build Faster.<br /> Manage Better.
+        </h1>
+
+        <p className="text-lg md:text-xl text-slate-400 max-w-2xl mx-auto mb-10 leading-relaxed">
+          The all-in-one platform to host hackathons, form teams, and submit projects.
+          Focus on the code, we will handle the chaos.
+        </p>
+
+        <Link
+          href="/auth"
+          className="px-8 py-4 bg-brand-600 text-white rounded-xl font-bold border-2 border-white text-lg hover:bg-blue-800 transition shadow-xl shadow-brand-600/20"
+        >
+          Get Started
+        </Link>
+      </main>
+
+      <footer className="relative z-10 py-8 text-center text-slate-500 text-sm">
+        <p>© 2025 Managemate. Built for Management.</p>
+      </footer>
     </div>
   );
-}
+};
+
+export default LandingPage;

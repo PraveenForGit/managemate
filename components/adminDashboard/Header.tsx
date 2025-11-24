@@ -13,7 +13,7 @@ export function Header({ user, onLogout }: HeaderProps) {
         <Image
           src="/image/logo-transparent-png.png"
           alt="ManageMate logo"
-          width={204}  // adjust size as needed
+          width={204}  
           height={190}
           className="object-contain"
         />

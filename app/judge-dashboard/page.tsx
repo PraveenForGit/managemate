@@ -31,7 +31,7 @@ export default function JudgeDashboard() {
     comments: ''
   });
 
-  // Authentication & initialization
+  // Authentication & initialization of users
   useEffect(() => {
     const savedUser = localStorage.getItem('currentUser');
     if (!savedUser) {
@@ -46,7 +46,7 @@ export default function JudgeDashboard() {
     setCurrentUser(user);
   }, []);
 
-  // Load data and apply filtering and leaderboard when currentUser or sortFilter changes
+  // filter for leaderboard
   useEffect(() => {
     if (!currentUser) return;
     const allSubmissions: Submission[] = JSON.parse(localStorage.getItem('submissions') || '[]');
@@ -75,7 +75,7 @@ export default function JudgeDashboard() {
 
   // Calculate leaderboard from submissions, teams, and scores
   function loadLeaderboard(allSubs: Submission[], allTeams: Team[], allScores: Score[]) {
-    const approvedSubs = allSubs; // Already filtered approved
+    const approvedSubs = allSubs; 
     const lb = approvedSubs.map(sub => {
       const subScores = allScores.filter(s => s.submissionId === sub.id);
       const totalScore = subScores.reduce((sum, s) => sum + s.total, 0);
@@ -91,7 +91,7 @@ export default function JudgeDashboard() {
     setLeaderboard(lb);
   }
 
-  // Open scoring modal and prefill data if existing score present
+  
   function openScoring(submission: Submission) {
     setScoringSubmission(submission);
     const existingScore = scores.find(s => s.submissionId === submission.id && s.judgeId === currentUser?.id);
@@ -116,7 +116,7 @@ export default function JudgeDashboard() {
     }
   }
 
-  // Close scoring modal and reset form
+  
   function closeScoring() {
     setScoringSubmission(null);
     setScoreFormData({
@@ -135,7 +135,7 @@ export default function JudgeDashboard() {
     setScoreFormData(prev => ({ ...prev, [id]: value }));
   }
 
-  // Submit updated or new score for a submission by judge
+  // Updated score submission by judge
   function submitScore(e: FormEvent) {
     e.preventDefault();
     if (!scoringSubmission || !currentUser) return;
@@ -182,7 +182,7 @@ export default function JudgeDashboard() {
     alert('Score submitted successfully!');
   }
 
-  // Logout handler
+  // Logout 
   function logout() {
     localStorage.removeItem('currentUser');
     window.location.replace('/?logout=true');

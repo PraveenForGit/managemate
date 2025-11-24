@@ -1,5 +1,3 @@
-import React from 'react';
-
 interface MessageBoxProps {
   message: { text: string; type: 'success' | 'error' | '' };
 }

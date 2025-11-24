@@ -20,15 +20,15 @@ export default function AdminDashboardPage() {
   const [activeTab, setActiveTab] = useState<Tab>('submissions');
   const [currentUser, setCurrentUser] = useState<User | null>(null);
 
-  // Data states
-  const [submissions, setSubmissions] = useState<SubmissionAdmin[]>([]);  // <- Use SubmissionAdmin here
+  // Data states is here
+  const [submissions, setSubmissions] = useState<SubmissionAdmin[]>([]);
   const [statusFilter, setStatusFilter] = useState<SubmissionStatus>('all');
   const [judges, setJudges] = useState<User[]>([]);
   const [announcements, setAnnouncements] = useState<Announcement[]>([]);
   const [leaderboard, setLeaderboard] = useState<LeaderboardItem[]>([]);
 
-  // Review modal
-  const [reviewSubmission, setReviewSubmission] = useState<SubmissionAdmin | null>(null);  // <- SubmissionAdmin here
+  // Review modal is here
+  const [reviewSubmission, setReviewSubmission] = useState<SubmissionAdmin | null>(null);
   const [adminComments, setAdminComments] = useState<string>('');
 
   useEffect(() => {
@@ -55,7 +55,7 @@ export default function AdminDashboardPage() {
   }, [statusFilter]);
 
   function loadSubmissions() {
-    const allSubs: SubmissionAdmin[] = JSON.parse(localStorage.getItem('submissions') || '[]');  // <- SubmissionAdmin here
+    const allSubs: SubmissionAdmin[] = JSON.parse(localStorage.getItem('submissions') || '[]');
     if (statusFilter === 'all') {
       setSubmissions(allSubs);
     } else {
@@ -74,7 +74,7 @@ export default function AdminDashboardPage() {
   }
 
   function loadLeaderboard() {
-    const submissions: SubmissionAdmin[] = JSON.parse(localStorage.getItem('submissions') || '[]');  // <- SubmissionAdmin here
+    const submissions: SubmissionAdmin[] = JSON.parse(localStorage.getItem('submissions') || '[]');
     const teams = JSON.parse(localStorage.getItem('teams') || '[]');
     const scores = JSON.parse(localStorage.getItem('scores') || '[]');
 
@@ -101,7 +101,7 @@ export default function AdminDashboardPage() {
     setStatusFilter(e.target.value as SubmissionStatus);
   }
 
-  function openReviewModal(submission: SubmissionAdmin) {  // <- SubmissionAdmin here
+  function openReviewModal(submission: SubmissionAdmin) {  
     setReviewSubmission(submission);
     setAdminComments(submission.adminComments || '');
   }
@@ -113,7 +113,7 @@ export default function AdminDashboardPage() {
 
   function updateSubmissionStatus(status: SubmissionStatus) {
     if (!reviewSubmission) return;
-    const submissions: SubmissionAdmin[] = JSON.parse(localStorage.getItem('submissions') || '[]');  // <- SubmissionAdmin here
+    const submissions: SubmissionAdmin[] = JSON.parse(localStorage.getItem('submissions') || '[]');  
     const index = submissions.findIndex(s => s.id === reviewSubmission.id);
     if (index === -1) return;
 

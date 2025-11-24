@@ -1,5 +1,3 @@
-import React from 'react';
-
 type Tab = 'projects' | 'leaderboard';
 
 interface TabsProps {
