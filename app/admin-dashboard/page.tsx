@@ -3,6 +3,8 @@
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { supabase } from '@/lib/supabase';
+import { checkLinks, type LinkStatus } from '@/lib/checkLinks';
+import { LinkBadge } from '@/components/LinkBadge';
 
 type Profile = { id: string; name: string; role: string };
 type SubmissionRow = {
@@ -15,6 +17,9 @@ type SubmissionRow = {
   status: 'pending' | 'approved' | 'rejected';
   admin_comment: string | null;
   created_at: string;
+  github_status: LinkStatus | null;
+  demo_status: LinkStatus | null;
+  links_checked_at: string | null;
   teams: { name: string } | null;
 };
 type Row = {
@@ -46,6 +51,7 @@ export default function AdminDashboard() {
   const [selected, setSelected] = useState<SubmissionRow | null>(null);
   const [comment, setComment] = useState('');
   const [loading, setLoading] = useState(true);
+  const [checking, setChecking] = useState(false);
   const [error, setError] = useState('');
 
   async function loadAll() {
@@ -88,6 +94,14 @@ export default function AdminDashboard() {
 
   async function decide(status: 'approved' | 'rejected') {
     if (!selected) return;
+    const broken =
+      selected.github_status === 'broken' || selected.demo_status === 'broken';
+    if (
+      status === 'approved' &&
+      broken &&
+      !window.confirm('A link on this project is not reachable. Approve anyway?')
+    ) return;
+
     const { error: err } = await supabase
       .from('submissions')
       .update({ status, admin_comment: comment || null })
@@ -95,6 +109,14 @@ export default function AdminDashboard() {
     if (err) { setError(err.message); return; }
     setSelected(null);
     await loadAll();
+  }
+
+  async function recheckAll() {
+    setError('');
+    setChecking(true);
+    for (const s of subs) await checkLinks(s.id);
+    await loadAll();
+    setChecking(false);
   }
 
   async function logout() {
@@ -132,6 +154,8 @@ export default function AdminDashboard() {
       </header>
 
       <main className="max-w-4xl mx-auto p-4 space-y-4">
+        {error && <p className="text-sm text-red-600">{error}</p>}
+
         {tab === 'submissions' && (
           <section className="bg-white border border-gray-200 rounded overflow-hidden">
             <div className="p-3 border-b border-gray-200 flex items-center gap-2 text-sm">
@@ -147,6 +171,13 @@ export default function AdminDashboard() {
                 <option value="approved">Approved</option>
                 <option value="rejected">Rejected</option>
               </select>
+              <button
+                onClick={recheckAll}
+                disabled={checking}
+                className="ml-auto underline disabled:opacity-50"
+              >
+                {checking ? 'Checking...' : 'Re-check all links'}
+              </button>
             </div>
             <table className="w-full text-sm">
               <thead className="bg-gray-100 text-left">
@@ -154,12 +185,13 @@ export default function AdminDashboard() {
                   <th className="p-3">Project</th>
                   <th className="p-3">Team</th>
                   <th className="p-3">Status</th>
+                  <th className="p-3">Links</th>
                   <th className="p-3"></th>
                 </tr>
               </thead>
               <tbody>
                 {visible.length === 0 && (
-                  <tr><td colSpan={4} className="p-4 text-gray-500">No submissions.</td></tr>
+                  <tr><td colSpan={5} className="p-4 text-gray-500">No submissions.</td></tr>
                 )}
                 {visible.map(s => (
                   <tr key={s.id} className="border-t border-gray-200">
@@ -169,6 +201,10 @@ export default function AdminDashboard() {
                       <span className={`px-2 py-0.5 rounded text-xs ${statusStyle[s.status]}`}>
                         {s.status}
                       </span>
+                    </td>
+                    <td className="p-3 space-x-1">
+                      <LinkBadge status={s.github_status} />
+                      {s.demo_url && <LinkBadge status={s.demo_status} />}
                     </td>
                     <td className="p-3 text-right">
                       <button onClick={() => openReview(s)} className="underline">Review</button>
@@ -244,12 +280,18 @@ export default function AdminDashboard() {
             <p><strong>Team:</strong> {selected.teams?.name ?? '-'}</p>
             <p><strong>Problem:</strong> {selected.problem}</p>
             <p className="whitespace-pre-wrap">{selected.description}</p>
-            <p>
-              <a href={selected.github_url} target="_blank" rel="noreferrer" className="underline">GitHub</a>
+            <div className="space-y-1">
+              <p>
+                <a href={selected.github_url} target="_blank" rel="noreferrer" className="underline">GitHub</a>{' '}
+                <LinkBadge status={selected.github_status} />
+              </p>
               {selected.demo_url && (
-                <> · <a href={selected.demo_url} target="_blank" rel="noreferrer" className="underline">Demo</a></>
+                <p>
+                  <a href={selected.demo_url} target="_blank" rel="noreferrer" className="underline">Demo</a>{' '}
+                  <LinkBadge status={selected.demo_status} />
+                </p>
               )}
-            </p>
+            </div>
             <textarea
               className={input}
               rows={3}
