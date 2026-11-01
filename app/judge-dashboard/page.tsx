@@ -1,222 +1,303 @@
 'use client';
 
-import React, { useState, useEffect, FormEvent } from 'react';
+import { useEffect, useState, FormEvent } from 'react';
+import { useRouter } from 'next/navigation';
+import { supabase } from '@/lib/supabase';
 
-import { User, Submission, Team, Score, LeaderboardItem } from '@/types';
+type Profile = { id: string; name: string; role: string };
+type Project = {
+  id: string;
+  title: string;
+  problem: string;
+  github_url: string;
+  demo_url: string | null;
+  description: string;
+  teams: { name: string } | null;
+};
+type Score = {
+  id: string;
+  submission_id: string;
+  innovation: number;
+  uiux: number;
+  impact: number;
+  technical: number;
+  completion: number;
+  total: number;
+  comments: string | null;
+};
+type Row = {
+  submission_id: string;
+  title: string;
+  team_name: string;
+  avg_score: number;
+  judge_count: number;
+};
 
-import { Header } from '@/components/judgeDashboard/Header';
-import { Tabs } from '@/components/judgeDashboard/Tabs';
-import { ProjectsList } from '@/components/judgeDashboard/ProjectsList';
-import { Leaderboard } from '@/components/judgeDashboard/Leaderboard';
-import { ScoringModal } from '@/components/judgeDashboard/ScoringModal';
+const CRITERIA = ['innovation', 'uiux', 'impact', 'technical', 'completion'] as const;
+type Criterion = (typeof CRITERIA)[number];
+const LABELS: Record<Criterion, string> = {
+  innovation: 'Innovation',
+  uiux: 'UI / UX',
+  impact: 'Impact',
+  technical: 'Technical',
+  completion: 'Completion',
+};
 
-type Tab = 'projects' | 'leaderboard';
+const input =
+  'w-full border border-gray-300 rounded px-3 py-2 text-sm text-gray-900 bg-white placeholder-gray-400 focus:outline-none focus:border-gray-900';
+
+const emptyForm: Record<Criterion, string> & { comments: string } = {
+  innovation: '', uiux: '', impact: '', technical: '', completion: '', comments: '',
+};
 
 export default function JudgeDashboard() {
-  const [activeTab, setActiveTab] = useState<Tab>('projects');
-  const [currentUser, setCurrentUser] = useState<User | null>(null);
-  const [submissions, setSubmissions] = useState<Submission[]>([]);
-  const [filteredSubmissions, setFilteredSubmissions] = useState<Submission[]>([]);
-  const [sortFilter, setSortFilter] = useState<'all' | 'scored' | 'unscored'>('all');
-  const [teams, setTeams] = useState<Team[]>([]);
-  const [scores, setScores] = useState<Score[]>([]);
-  const [leaderboard, setLeaderboard] = useState<LeaderboardItem[]>([]);
-  const [scoringSubmission, setScoringSubmission] = useState<Submission | null>(null);
-  const [scoreFormData, setScoreFormData] = useState({
-    innovation: '',
-    uiux: '',
-    impact: '',
-    technical: '',
-    completion: '',
-    comments: ''
-  });
+  const router = useRouter();
+  const [profile, setProfile] = useState<Profile | null>(null);
+  const [projects, setProjects] = useState<Project[]>([]);
+  const [myScores, setMyScores] = useState<Score[]>([]);
+  const [leaderboard, setLeaderboard] = useState<Row[]>([]);
+  const [tab, setTab] = useState<'projects' | 'leaderboard'>('projects');
+  const [selected, setSelected] = useState<Project | null>(null);
+  const [form, setForm] = useState(emptyForm);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
 
-  // Authentication & initialization of users
+  async function loadAll(userId: string) {
+    const { data: p } = await supabase
+      .from('submissions')
+      .select('id, title, problem, github_url, demo_url, description, teams(name)')
+      .eq('status', 'approved')
+      .order('created_at', { ascending: false });
+    setProjects((p ?? []) as unknown as Project[]);
+
+    const { data: s } = await supabase
+      .from('scores')
+      .select('*')
+      .eq('judge_id', userId);
+    setMyScores((s ?? []) as Score[]);
+
+    const { data: lb } = await supabase.from('leaderboard').select('*');
+    setLeaderboard((lb ?? []) as Row[]);
+  }
+
   useEffect(() => {
-    const savedUser = localStorage.getItem('currentUser');
-    if (!savedUser) {
-      window.location.replace('/');
-      return;
-    }
-    const user: User = JSON.parse(savedUser);
-    if (!user || user.role !== 'judge') {
-      window.location.replace('/');
-      return;
-    }
-    setCurrentUser(user);
-  }, []);
+    (async () => {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) { router.replace('/auth'); return; }
 
-  // filter for leaderboard
-  useEffect(() => {
-    if (!currentUser) return;
-    const allSubmissions: Submission[] = JSON.parse(localStorage.getItem('submissions') || '[]');
-    const approvedSubmissions = allSubmissions.filter(submission => submission.status === 'approved');
-    const allTeams: Team[] = JSON.parse(localStorage.getItem('teams') || '[]');
-    const allScores: Score[] = JSON.parse(localStorage.getItem('scores') || '[]');
+      const { data: p } = await supabase
+        .from('profiles').select('*').eq('id', user.id).single();
+      if (!p || p.role !== 'judge') { router.replace('/auth'); return; }
 
-    setSubmissions(approvedSubmissions);
-    setTeams(allTeams);
-    setScores(allScores);
+      setProfile(p);
+      await loadAll(user.id);
+      setLoading(false);
+    })();
+  }, [router]);
 
-    applyFilter(approvedSubmissions, allScores, currentUser.id);
-    loadLeaderboard(approvedSubmissions, allTeams, allScores);
-  }, [currentUser, sortFilter]);
-
-  // Filter submissions based on scored/unscored/all status for current judge
-  function applyFilter(subs: Submission[], scores: Score[], judgeId: string) {
-    let filtered = subs;
-    if (sortFilter === 'scored') {
-      filtered = subs.filter(sub => scores.some(s => s.submissionId === sub.id && s.judgeId === judgeId));
-    } else if (sortFilter === 'unscored') {
-      filtered = subs.filter(sub => !scores.some(s => s.submissionId === sub.id && s.judgeId === judgeId));
-    }
-    setFilteredSubmissions(filtered);
+  function scoreFor(projectId: string) {
+    return myScores.find(s => s.submission_id === projectId);
   }
 
-  // Calculate leaderboard from submissions, teams, and scores
-  function loadLeaderboard(allSubs: Submission[], allTeams: Team[], allScores: Score[]) {
-    const approvedSubs = allSubs; 
-    const lb = approvedSubs.map(sub => {
-      const subScores = allScores.filter(s => s.submissionId === sub.id);
-      const totalScore = subScores.reduce((sum, s) => sum + s.total, 0);
-      const avgScore = subScores.length === 0 ? 0 : totalScore / subScores.length;
-      const team = allTeams.find(t => t.id === sub.teamId);
-      return {
-        submission: sub,
-        team,
-        averageScore: Math.round(avgScore * 100) / 100,
-        judgeCount: subScores.length
-      };
-    }).sort((a, b) => b.averageScore - a.averageScore);
-    setLeaderboard(lb);
+  function openScoring(project: Project) {
+    const existing = scoreFor(project.id);
+    setSelected(project);
+    setError('');
+    setForm(
+      existing
+        ? {
+            innovation: String(existing.innovation),
+            uiux: String(existing.uiux),
+            impact: String(existing.impact),
+            technical: String(existing.technical),
+            completion: String(existing.completion),
+            comments: existing.comments ?? '',
+          }
+        : emptyForm
+    );
   }
 
-  
-  function openScoring(submission: Submission) {
-    setScoringSubmission(submission);
-    const existingScore = scores.find(s => s.submissionId === submission.id && s.judgeId === currentUser?.id);
-    if (existingScore) {
-      setScoreFormData({
-        innovation: existingScore.scores.innovation.toString(),
-        uiux: existingScore.scores.uiux.toString(),
-        impact: existingScore.scores.impact.toString(),
-        technical: existingScore.scores.technical.toString(),
-        completion: existingScore.scores.completion.toString(),
-        comments: existingScore.comments || ''
-      });
-    } else {
-      setScoreFormData({
-        innovation: '',
-        uiux: '',
-        impact: '',
-        technical: '',
-        completion: '',
-        comments: ''
-      });
-    }
-  }
-
-  
-  function closeScoring() {
-    setScoringSubmission(null);
-    setScoreFormData({
-      innovation: '',
-      uiux: '',
-      impact: '',
-      technical: '',
-      completion: '',
-      comments: ''
-    });
-  }
-
-  // Handle input change for scoring form
-  function handleScoreChange(e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) {
-    const { id, value } = e.target;
-    setScoreFormData(prev => ({ ...prev, [id]: value }));
-  }
-
-  // Updated score submission by judge
-  function submitScore(e: FormEvent) {
+  async function submitScore(e: FormEvent) {
     e.preventDefault();
-    if (!scoringSubmission || !currentUser) return;
+    if (!selected || !profile) return;
+    setError('');
 
-    const scoresParsed = {
-      innovation: Number(scoreFormData.innovation),
-      uiux: Number(scoreFormData.uiux),
-      impact: Number(scoreFormData.impact),
-      technical: Number(scoreFormData.technical),
-      completion: Number(scoreFormData.completion),
-    };
+    const { error: err } = await supabase.from('scores').upsert(
+      {
+        submission_id: selected.id,
+        judge_id: profile.id,
+        innovation: Number(form.innovation),
+        uiux: Number(form.uiux),
+        impact: Number(form.impact),
+        technical: Number(form.technical),
+        completion: Number(form.completion),
+        comments: form.comments || null,
+      },
+      { onConflict: 'submission_id,judge_id' }
+    );
+    if (err) { setError(err.message); return; }
 
-    const total = Object.values(scoresParsed).reduce((a, b) => a + b, 0);
-
-    if (total > 100) {
-      alert('Total score cannot exceed 100 points!');
-      return;
-    }
-
-    const updatedScores = [...scores];
-
-    const existingIndex = scores.findIndex(s => s.submissionId === scoringSubmission.id && s.judgeId === currentUser.id);
-
-    const scoreData: Score = {
-      id: existingIndex !== -1 ? updatedScores[existingIndex].id : Date.now().toString(),
-      submissionId: scoringSubmission.id,
-      judgeId: currentUser.id,
-      scores: scoresParsed,
-      total,
-      comments: scoreFormData.comments
-    };
-
-    if (existingIndex !== -1) {
-      updatedScores[existingIndex] = scoreData;
-    } else {
-      updatedScores.push(scoreData);
-    }
-
-    localStorage.setItem('scores', JSON.stringify(updatedScores));
-    setScores(updatedScores);
-    applyFilter(submissions, updatedScores, currentUser.id);
-    loadLeaderboard(submissions, teams, updatedScores);
-    closeScoring();
-    alert('Score submitted successfully!');
+    setSelected(null);
+    await loadAll(profile.id);
   }
 
-  // Logout 
-  function logout() {
-    localStorage.removeItem('currentUser');
-    window.location.replace('/?logout=true');
+  async function logout() {
+    await supabase.auth.signOut();
+    router.replace('/');
   }
+
+  if (loading) return <p className="p-6 text-gray-600">Loading...</p>;
 
   return (
-    <div className="min-h-screen bg-slate-900 text-slate-100">
-      <Header user={currentUser} onLogout={logout} />
+    <div className="min-h-screen bg-gray-50 text-gray-900">
+      <header className="bg-white border-b border-gray-200">
+        <div className="max-w-4xl mx-auto px-4 py-3 flex justify-between items-center">
+          <span className="font-semibold">ManageMate</span>
+          <div className="flex items-center gap-4 text-sm">
+            <span className="text-gray-600">{profile?.name} (judge)</span>
+            <button onClick={logout} className="underline">Log out</button>
+          </div>
+        </div>
+        <nav className="max-w-4xl mx-auto px-4 flex gap-6 text-sm">
+          {(['projects', 'leaderboard'] as const).map(t => (
+            <button
+              key={t}
+              onClick={() => setTab(t)}
+              className={`py-2 capitalize ${
+                tab === t ? 'border-b-2 border-gray-900 font-medium' : 'text-gray-500'
+              }`}
+            >
+              {t}
+            </button>
+          ))}
+        </nav>
+      </header>
 
-      <Tabs activeTab={activeTab} onChange={setActiveTab} />
-
-      <main className="p-6 max-w-5xl mx-auto">
-        {activeTab === 'projects' && (
-          <ProjectsList
-            submissions={filteredSubmissions}
-            teams={teams}
-            scores={scores}
-            currentUserId={currentUser?.id!}
-            sortFilter={sortFilter}
-            onEvaluateClick={openScoring}
-          />
+      <main className="max-w-4xl mx-auto p-4">
+        {tab === 'projects' && (
+          <section className="bg-white border border-gray-200 rounded overflow-hidden">
+            <table className="w-full text-sm">
+              <thead className="bg-gray-100 text-left">
+                <tr>
+                  <th className="p-3">Project</th>
+                  <th className="p-3">Team</th>
+                  <th className="p-3">Your score</th>
+                  <th className="p-3"></th>
+                </tr>
+              </thead>
+              <tbody>
+                {projects.length === 0 && (
+                  <tr><td colSpan={4} className="p-4 text-gray-500">No approved projects yet.</td></tr>
+                )}
+                {projects.map(p => {
+                  const s = scoreFor(p.id);
+                  return (
+                    <tr key={p.id} className="border-t border-gray-200">
+                      <td className="p-3">{p.title}</td>
+                      <td className="p-3">{p.teams?.name ?? '-'}</td>
+                      <td className="p-3">{s ? `${s.total} / 100` : 'Not scored'}</td>
+                      <td className="p-3 text-right">
+                        <button onClick={() => openScoring(p)} className="underline">
+                          {s ? 'Edit score' : 'Score'}
+                        </button>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </section>
         )}
 
-        {activeTab === 'leaderboard' && <Leaderboard leaderboard={leaderboard} />}
+        {tab === 'leaderboard' && (
+          <section className="bg-white border border-gray-200 rounded overflow-hidden">
+            <table className="w-full text-sm">
+              <thead className="bg-gray-100 text-left">
+                <tr>
+                  <th className="p-3 w-12">#</th>
+                  <th className="p-3">Project</th>
+                  <th className="p-3">Team</th>
+                  <th className="p-3 text-right">Score</th>
+                  <th className="p-3 text-right">Judges</th>
+                </tr>
+              </thead>
+              <tbody>
+                {leaderboard.length === 0 && (
+                  <tr><td colSpan={5} className="p-4 text-gray-500">No approved projects yet.</td></tr>
+                )}
+                {leaderboard.map((r, i) => (
+                  <tr key={r.submission_id} className="border-t border-gray-200">
+                    <td className="p-3">{i + 1}</td>
+                    <td className="p-3">{r.title}</td>
+                    <td className="p-3">{r.team_name}</td>
+                    <td className="p-3 text-right">{r.avg_score}</td>
+                    <td className="p-3 text-right">{r.judge_count}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </section>
+        )}
       </main>
 
-      {scoringSubmission && (
-        <ScoringModal
-          submission={scoringSubmission}
-          formData={scoreFormData}
-          onFormChange={handleScoreChange}
-          onSubmit={submitScore}
-          onClose={closeScoring}
-        />
+      {selected && (
+        <div
+          className="fixed inset-0 bg-black/40 flex items-center justify-center p-4"
+          onClick={() => setSelected(null)}
+        >
+          <form
+            onSubmit={submitScore}
+            className="bg-white rounded-lg border border-gray-200 w-full max-w-lg p-5 space-y-3 text-sm max-h-[90vh] overflow-y-auto"
+            onClick={e => e.stopPropagation()}
+          >
+            <h2 className="font-semibold text-lg">{selected.title}</h2>
+            <p><strong>Problem:</strong> {selected.problem}</p>
+            <p className="whitespace-pre-wrap text-gray-700">{selected.description}</p>
+            <p>
+              <a href={selected.github_url} target="_blank" rel="noreferrer" className="underline">GitHub</a>
+              {selected.demo_url && (
+                <> · <a href={selected.demo_url} target="_blank" rel="noreferrer" className="underline">Demo</a></>
+              )}
+            </p>
+
+            <hr className="border-gray-200" />
+
+            {CRITERIA.map(c => (
+              <div key={c} className="flex items-center justify-between gap-4">
+                <label htmlFor={c}>{LABELS[c]} (0-20)</label>
+                <input
+                  id={c}
+                  type="number"
+                  min={0}
+                  max={20}
+                  required
+                  value={form[c]}
+                  onChange={e => setForm({ ...form, [c]: e.target.value })}
+                  className="w-20 border border-gray-300 rounded px-2 py-1 text-center text-gray-900 bg-white"
+                />
+              </div>
+            ))}
+
+            <textarea
+              className={input}
+              rows={3}
+              placeholder="Feedback (optional)"
+              value={form.comments}
+              onChange={e => setForm({ ...form, comments: e.target.value })}
+            />
+
+            {error && <p className="text-red-600">{error}</p>}
+
+            <div className="flex gap-2">
+              <button className="bg-gray-900 text-white rounded px-4 py-2 font-medium hover:bg-gray-700">
+                Save score
+              </button>
+              <button type="button" onClick={() => setSelected(null)} className="px-4 py-2 underline">
+                Cancel
+              </button>
+            </div>
+          </form>
+        </div>
       )}
     </div>
   );

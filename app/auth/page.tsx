@@ -1,135 +1,131 @@
 'use client';
 
-import React, { useState, FormEvent } from 'react';
-
-import { TabToggle } from '@/components/auth/TabToggle';
-import { LoginForm } from '@/components/auth/LoginForm';
-import { SignupForm } from '@/components/auth/SignupForm';
-import { MessageBox } from '@/components/auth/MessageBox';
+import { useState, FormEvent } from 'react';
 import { useRouter } from 'next/navigation';
+import { supabase } from '@/lib/supabase';
 
-type Role = 'participant' | 'admin' | 'judge' | '';
-
- const AuthPage = () => {
+export default function AuthPage() {
   const router = useRouter();
+  const [mode, setMode] = useState<'login' | 'signup'>('login');
+  const [name, setName] = useState('');
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [role, setRole] = useState<'participant' | 'judge'>('participant');
+  const [error, setError] = useState('');
+  const [loading, setLoading] = useState(false);
 
-  const [activeTab, setActiveTab] = useState<'login' | 'signup'>('login');
+  async function redirectByRole(userId: string) {
+    const { data, error } = await supabase
+      .from('profiles')
+      .select('role')
+      .eq('id', userId)
+      .single();
+    if (error || !data) {
+      setError('Could not load your profile.');
+      return;
+    }
+    router.push(`/${data.role}-dashboard`);
+  }
 
-  const [loginEmail, setLoginEmail] = useState('');
-  const [loginPassword, setLoginPassword] = useState('');
-  const [loginRole, setLoginRole] = useState<Role>('');
-
-  const [signupName, setSignupName] = useState('');
-  const [signupEmail, setSignupEmail] = useState('');
-  const [signupPassword, setSignupPassword] = useState('');
-  const [signupRole, setSignupRole] = useState<Role>('');
-
-  const [message, setMessage] = useState<{ text: string; type: 'success' | 'error' | '' }>({ text: '', type: '' });
-
-  const getUsers = (): any[] => {
-    if (typeof window === 'undefined') return [];
-    const usersJson = localStorage.getItem('users') || '[]';
-    return JSON.parse(usersJson);
-  };
-
-  const setUsers = (users: any[]) => {
-    localStorage.setItem('users', JSON.stringify(users));
-  };
-
-  const handleLogin = (e: FormEvent) => {
+  async function handleSubmit(e: FormEvent) {
     e.preventDefault();
-    if (!loginEmail || !loginPassword || !loginRole) {
-      setMessage({ text: 'Please fill in all fields', type: 'error' });
-      return;
-    }
-    const users = getUsers();
-    const user = users.find((u: any) => u.email === loginEmail && u.role === loginRole);
-    if (!user || user.password !== loginPassword) {
-      setMessage({ text: 'Invalid credentials', type: 'error' });
-      return;
-    }
-    const currentUser = { ...user };
-    delete currentUser.password;
-    localStorage.setItem('currentUser', JSON.stringify(currentUser));
-    setMessage({ text: 'Login successful! Redirecting...', type: 'success' });
-    setTimeout(() => router.push(`/${loginRole}-dashboard`), 1000);
-  };
+    setError('');
+    setLoading(true);
 
-  const handleSignup = (e: FormEvent) => {
-    e.preventDefault();
-    if (!signupName || !signupEmail || !signupPassword || !signupRole) {
-      setMessage({ text: 'Please fill in all fields', type: 'error' });
-      return;
+    if (mode === 'signup') {
+      const { data, error } = await supabase.auth.signUp({
+        email,
+        password,
+        options: { data: { name, role } },
+      });
+      if (error) setError(error.message);
+      else if (data.user && data.session) await redirectByRole(data.user.id);
+      else setError('Account created. Check your email to confirm it.');
+    } else {
+      const { data, error } = await supabase.auth.signInWithPassword({
+        email,
+        password,
+      });
+      if (error) setError(error.message);
+      else await redirectByRole(data.user.id);
     }
-    if (signupPassword.length < 6) {
-      setMessage({ text: 'Password must be at least 6 characters', type: 'error' });
-      return;
-    }
-    const users = getUsers();
-    if (users.some((u: any) => u.email === signupEmail)) {
-      setMessage({ text: 'Email already registered', type: 'error' });
-      return;
-    }
-    const newUser = {
-      id: Date.now().toString(),
-      name: signupName,
-      email: signupEmail,
-      password: signupPassword,
-      role: signupRole,
-    };
-    users.push(newUser);
-    setUsers(users);
-    setMessage({ text: 'Account created successfully! Please login.', type: 'success' });
-    setTimeout(() => setActiveTab('login'), 1500);
-  };
+    setLoading(false);
+  }
+
+  const input =
+    'w-full border border-gray-300 rounded px-3 py-2 text-sm focus:outline-none focus:border-gray-900';
 
   return (
-    <div className="min-h-screen flex items-center justify-center relative overflow-hidden">
+    <div className="min-h-screen bg-gray-50 flex items-center justify-center p-4">
+      <form
+        onSubmit={handleSubmit}
+        className="w-full max-w-sm bg-white border border-gray-200 rounded-lg p-6 space-y-4"
+      >
+        <h1 className="text-xl font-semibold text-gray-900">
+          {mode === 'login' ? 'Log in to ManageMate' : 'Create your account'}
+        </h1>
 
-      <div className="absolute inset-0 backdrop-blur-2xl bg-black/40"></div>
-
-   
-      <div className="absolute w-[600px] h-[600px] bg-purple-600/20 rounded-full blur-[150px] top-[-10%] left-[-10%]"></div>
-      <div className="absolute w-[600px] h-[600px] bg-indigo-600/20 rounded-full blur-[150px] bottom-[-10%] right-[-10%]"></div>
-
-      <div className="relative bg-white/10 backdrop-blur-xl border border-white/20 rounded-3xl p-12 max-w-md w-full shadow-[0_0_50px_-12px_rgba(0,0,0,0.8)] z-10">
-        <header className="text-center mb-8">
-          <h1 className="text-4xl font-extrabold bg-linear-to-r from-indigo-400 via-fuchsia-400 to-pink-400 bg-clip-text text-transparent mb-1">
-            ManageMate
-          </h1>
-          <p className="text-slate-300">Your Management Partner</p>
-        </header>
-
-        <TabToggle activeTab={activeTab} onChange={setActiveTab} />
-
-        {activeTab === 'login' ? (
-          <LoginForm
-            email={loginEmail}
-            password={loginPassword}
-            role={loginRole}
-            onEmailChange={setLoginEmail}
-            onPasswordChange={setLoginPassword}
-            onRoleChange={setLoginRole}
-            onSubmit={handleLogin}
-          />
-        ) : (
-          <SignupForm
-            name={signupName}
-            email={signupEmail}
-            password={signupPassword}
-            role={signupRole}
-            onNameChange={setSignupName}
-            onEmailChange={setSignupEmail}
-            onPasswordChange={setSignupPassword}
-            onRoleChange={setSignupRole}
-            onSubmit={handleSignup}
-          />
+        {mode === 'signup' && (
+          <>
+            <input
+              className={input}
+              placeholder="Full name"
+              required
+              value={name}
+              onChange={e => setName(e.target.value)}
+            />
+            <select
+              className={input}
+              value={role}
+              onChange={e => setRole(e.target.value as 'participant' | 'judge')}
+            >
+              <option value="participant">Participant</option>
+              <option value="judge">Judge</option>
+            </select>
+          </>
         )}
 
-        <MessageBox message={message} />
-      </div>
+        <input
+          className={input}
+          type="email"
+          placeholder="Email"
+          required
+          value={email}
+          onChange={e => setEmail(e.target.value)}
+        />
+        <input
+          className={input}
+          type="password"
+          placeholder="Password (min 6)"
+          required
+          minLength={6}
+          value={password}
+          onChange={e => setPassword(e.target.value)}
+        />
+
+        {error && <p className="text-sm text-red-600">{error}</p>}
+
+        <button
+          disabled={loading}
+          className="w-full bg-gray-900 text-white rounded py-2 text-sm font-medium hover:bg-gray-700 disabled:opacity-50"
+        >
+          {loading ? 'Please wait...' : mode === 'login' ? 'Log in' : 'Sign up'}
+        </button>
+
+        <p className="text-sm text-gray-600 text-center">
+          {mode === 'login' ? 'New here? ' : 'Already have an account? '}
+          <button
+            type="button"
+            className="underline"
+            onClick={() => {
+              setMode(mode === 'login' ? 'signup' : 'login');
+              setError('');
+            }}
+          >
+            {mode === 'login' ? 'Sign up' : 'Log in'}
+          </button>
+        </p>
+      </form>
     </div>
   );
-};
-
-export default AuthPage;
+}

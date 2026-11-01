@@ -1,208 +1,283 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import { useEffect, useState } from 'react';
+import { useRouter } from 'next/navigation';
+import { supabase } from '@/lib/supabase';
 
-import { User, SubmissionAdmin, Announcement, LeaderboardItem } from '@/types';
+type Profile = { id: string; name: string; role: string };
+type SubmissionRow = {
+  id: string;
+  title: string;
+  problem: string;
+  github_url: string;
+  demo_url: string | null;
+  description: string;
+  status: 'pending' | 'approved' | 'rejected';
+  admin_comment: string | null;
+  created_at: string;
+  teams: { name: string } | null;
+};
+type Row = {
+  submission_id: string;
+  title: string;
+  team_name: string;
+  avg_score: number;
+  judge_count: number;
+};
+type JudgeRow = { id: string; name: string };
 
-import { Header } from '@/components/adminDashboard/Header';
-import { Tabs } from '@/components/adminDashboard/Tabs';
-import { SubmissionList } from '@/components/adminDashboard/SubmissionList';
-import { JudgesList } from '@/components/adminDashboard/JudgesList';
-import { AnnouncementsForm } from '@/components/adminDashboard/AnnouncementsForm';
-import { AnnouncementsList } from '@/components/adminDashboard/AnnouncementsList';
-import { Leaderboard } from '@/components/adminDashboard/Leaderboard';
-import { ReviewModal } from '@/components/adminDashboard/ReviewModal';
+const statusStyle = {
+  pending: 'bg-yellow-100 text-yellow-800',
+  approved: 'bg-green-100 text-green-800',
+  rejected: 'bg-red-100 text-red-800',
+};
 
-type SubmissionStatus = 'all' | 'pending' | 'approved' | 'rejected';
-type Tab = 'submissions' | 'judges' | 'timeline' | 'leaderboard';
+const input =
+  'w-full border border-gray-300 rounded px-3 py-2 text-sm text-gray-900 bg-white placeholder-gray-400 focus:outline-none focus:border-gray-900';
 
-export default function AdminDashboardPage() {
-  const [activeTab, setActiveTab] = useState<Tab>('submissions');
-  const [currentUser, setCurrentUser] = useState<User | null>(null);
+export default function AdminDashboard() {
+  const router = useRouter();
+  const [profile, setProfile] = useState<Profile | null>(null);
+  const [subs, setSubs] = useState<SubmissionRow[]>([]);
+  const [filter, setFilter] = useState<'all' | 'pending' | 'approved' | 'rejected'>('all');
+  const [judges, setJudges] = useState<JudgeRow[]>([]);
+  const [leaderboard, setLeaderboard] = useState<Row[]>([]);
+  const [tab, setTab] = useState<'submissions' | 'judges' | 'leaderboard'>('submissions');
+  const [selected, setSelected] = useState<SubmissionRow | null>(null);
+  const [comment, setComment] = useState('');
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
 
-  // Data states is here
-  const [submissions, setSubmissions] = useState<SubmissionAdmin[]>([]);
-  const [statusFilter, setStatusFilter] = useState<SubmissionStatus>('all');
-  const [judges, setJudges] = useState<User[]>([]);
-  const [announcements, setAnnouncements] = useState<Announcement[]>([]);
-  const [leaderboard, setLeaderboard] = useState<LeaderboardItem[]>([]);
+  async function loadAll() {
+    const { data: s } = await supabase
+      .from('submissions')
+      .select('*, teams(name)')
+      .order('created_at', { ascending: false });
+    setSubs((s ?? []) as unknown as SubmissionRow[]);
 
-  // Review modal is here
-  const [reviewSubmission, setReviewSubmission] = useState<SubmissionAdmin | null>(null);
-  const [adminComments, setAdminComments] = useState<string>('');
+    const { data: j } = await supabase
+      .from('profiles')
+      .select('id, name')
+      .eq('role', 'judge');
+    setJudges((j ?? []) as JudgeRow[]);
+
+    const { data: lb } = await supabase.from('leaderboard').select('*');
+    setLeaderboard((lb ?? []) as Row[]);
+  }
 
   useEffect(() => {
-    const savedUser = localStorage.getItem('currentUser');
-    if (!savedUser) {
-      window.location.replace('/');
-      return;
-    }
-    const user: User = JSON.parse(savedUser);
-    if (user?.role !== 'admin') {
-      window.location.replace('/');
-      return;
-    }
-    setCurrentUser(user);
+    (async () => {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) { router.replace('/auth'); return; }
 
-    loadSubmissions();
-    loadJudges();
-    loadAnnouncements();
-    loadLeaderboard();
-  }, []);
+      const { data: p } = await supabase
+        .from('profiles').select('*').eq('id', user.id).single();
+      if (!p || p.role !== 'admin') { router.replace('/auth'); return; }
 
-  useEffect(() => {
-    loadSubmissions();
-  }, [statusFilter]);
+      setProfile(p);
+      await loadAll();
+      setLoading(false);
+    })();
+  }, [router]);
 
-  function loadSubmissions() {
-    const allSubs: SubmissionAdmin[] = JSON.parse(localStorage.getItem('submissions') || '[]');
-    if (statusFilter === 'all') {
-      setSubmissions(allSubs);
-    } else {
-      setSubmissions(allSubs.filter(s => s.status === statusFilter));
-    }
+  function openReview(s: SubmissionRow) {
+    setSelected(s);
+    setComment(s.admin_comment ?? '');
+    setError('');
   }
 
-  function loadJudges() {
-    const users: User[] = JSON.parse(localStorage.getItem('users') || '[]');
-    setJudges(users.filter(u => u.role === 'judge'));
+  async function decide(status: 'approved' | 'rejected') {
+    if (!selected) return;
+    const { error: err } = await supabase
+      .from('submissions')
+      .update({ status, admin_comment: comment || null })
+      .eq('id', selected.id);
+    if (err) { setError(err.message); return; }
+    setSelected(null);
+    await loadAll();
   }
 
-  function loadAnnouncements() {
-    const data: Announcement[] = JSON.parse(localStorage.getItem('announcements') || '[]');
-    setAnnouncements(data.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()));
+  async function logout() {
+    await supabase.auth.signOut();
+    router.replace('/');
   }
 
-  function loadLeaderboard() {
-    const submissions: SubmissionAdmin[] = JSON.parse(localStorage.getItem('submissions') || '[]');
-    const teams = JSON.parse(localStorage.getItem('teams') || '[]');
-    const scores = JSON.parse(localStorage.getItem('scores') || '[]');
+  if (loading) return <p className="p-6 text-gray-600">Loading...</p>;
 
-    const approvedSubs = submissions.filter(s => s.status === 'approved');
-
-    const lb = approvedSubs.map(sub => {
-      const subScores = scores.filter((score: any) => score.submissionId === sub.id);
-      const totalScore = subScores.reduce((sum: any, s: any) => sum + s.total, 0);
-      const avgScore = subScores.length === 0 ? 0 : totalScore / subScores.length;
-      const teamName = teams.find((t: any) => t.id === sub.teamId)?.name || 'Unknown Team';
-
-      return {
-        submission: sub,
-        teamName,
-        averageScore: Math.round(avgScore * 100) / 100,
-        judgeCount: subScores.length
-      };
-    }).sort((a, b) => b.averageScore - a.averageScore);
-
-    setLeaderboard(lb);
-  }
-
-  function handleStatusFilterChange(e: React.ChangeEvent<HTMLSelectElement>) {
-    setStatusFilter(e.target.value as SubmissionStatus);
-  }
-
-  function openReviewModal(submission: SubmissionAdmin) {  
-    setReviewSubmission(submission);
-    setAdminComments(submission.adminComments || '');
-  }
-
-  function closeReviewModal() {
-    setReviewSubmission(null);
-    setAdminComments('');
-  }
-
-  function updateSubmissionStatus(status: SubmissionStatus) {
-    if (!reviewSubmission) return;
-    const submissions: SubmissionAdmin[] = JSON.parse(localStorage.getItem('submissions') || '[]');  
-    const index = submissions.findIndex(s => s.id === reviewSubmission.id);
-    if (index === -1) return;
-
-    submissions[index].status = status;
-    submissions[index].adminComments = adminComments;
-    submissions[index].updatedAt = new Date().toISOString();
-
-    localStorage.setItem('submissions', JSON.stringify(submissions));
-    loadSubmissions();
-    closeReviewModal();
-    alert(`Submission ${status === 'approved' ? 'approved' : 'rejected'}.`);
-  }
-
-  function handleAnnouncementSubmit(title: string, content: string, date: string) {
-    if (!title || !content || !date) {
-      alert('Please fill all announcement fields.');
-      return;
-    }
-
-    const data: Announcement[] = JSON.parse(localStorage.getItem('announcements') || '[]');
-    const newAnnouncement: Announcement = {
-      id: Date.now().toString(),
-      title,
-      content,
-      date,
-    };
-    data.push(newAnnouncement);
-    localStorage.setItem('announcements', JSON.stringify(data));
-    loadAnnouncements();
-    alert('Announcement created!');
-  }
-
-  function logout() {
-    localStorage.removeItem('currentUser');
-    window.location.replace('/?logout=true');
-  }
+  const visible = filter === 'all' ? subs : subs.filter(s => s.status === filter);
 
   return (
-    <>
-      <Header user={currentUser} onLogout={logout} />
-      <Tabs activeTab={activeTab} onChange={setActiveTab} />
-      <main className="p-6 max-w-7xl mx-auto">
-        {activeTab === 'submissions' && (
-          <section>
-            <div className="flex justify-between items-center mb-6">
-              <h2 className="text-2xl font-semibold">Project Submissions</h2>
+    <div className="min-h-screen bg-gray-50 text-gray-900">
+      <header className="bg-white border-b border-gray-200">
+        <div className="max-w-4xl mx-auto px-4 py-3 flex justify-between items-center">
+          <span className="font-semibold">ManageMate</span>
+          <div className="flex items-center gap-4 text-sm">
+            <span className="text-gray-600">{profile?.name} (admin)</span>
+            <button onClick={logout} className="underline">Log out</button>
+          </div>
+        </div>
+        <nav className="max-w-4xl mx-auto px-4 flex gap-6 text-sm">
+          {(['submissions', 'judges', 'leaderboard'] as const).map(t => (
+            <button
+              key={t}
+              onClick={() => setTab(t)}
+              className={`py-2 capitalize ${
+                tab === t ? 'border-b-2 border-gray-900 font-medium' : 'text-gray-500'
+              }`}
+            >
+              {t}
+            </button>
+          ))}
+        </nav>
+      </header>
+
+      <main className="max-w-4xl mx-auto p-4 space-y-4">
+        {tab === 'submissions' && (
+          <section className="bg-white border border-gray-200 rounded overflow-hidden">
+            <div className="p-3 border-b border-gray-200 flex items-center gap-2 text-sm">
+              <label htmlFor="filter">Status</label>
               <select
-                value={statusFilter}
-                onChange={handleStatusFilterChange}
-                className="px-3 py-1 rounded bg-slate-800 border border-slate-600 text-slate-100"
+                id="filter"
+                value={filter}
+                onChange={e => setFilter(e.target.value as typeof filter)}
+                className="border border-gray-300 rounded px-2 py-1 bg-white text-gray-900"
               >
-                <option value="all">All Status</option>
+                <option value="all">All</option>
                 <option value="pending">Pending</option>
                 <option value="approved">Approved</option>
                 <option value="rejected">Rejected</option>
               </select>
             </div>
-            <SubmissionList submissions={submissions} onReviewClick={openReviewModal} />
+            <table className="w-full text-sm">
+              <thead className="bg-gray-100 text-left">
+                <tr>
+                  <th className="p-3">Project</th>
+                  <th className="p-3">Team</th>
+                  <th className="p-3">Status</th>
+                  <th className="p-3"></th>
+                </tr>
+              </thead>
+              <tbody>
+                {visible.length === 0 && (
+                  <tr><td colSpan={4} className="p-4 text-gray-500">No submissions.</td></tr>
+                )}
+                {visible.map(s => (
+                  <tr key={s.id} className="border-t border-gray-200">
+                    <td className="p-3">{s.title}</td>
+                    <td className="p-3">{s.teams?.name ?? '-'}</td>
+                    <td className="p-3">
+                      <span className={`px-2 py-0.5 rounded text-xs ${statusStyle[s.status]}`}>
+                        {s.status}
+                      </span>
+                    </td>
+                    <td className="p-3 text-right">
+                      <button onClick={() => openReview(s)} className="underline">Review</button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
           </section>
         )}
-        {activeTab === 'judges' && (
-          <section>
-            <h2 className="text-2xl font-semibold mb-4">Manage Judges</h2>
-            <JudgesList judges={judges} />
+
+        {tab === 'judges' && (
+          <section className="bg-white border border-gray-200 rounded overflow-hidden">
+            <table className="w-full text-sm">
+              <thead className="bg-gray-100 text-left">
+                <tr><th className="p-3">Judge</th></tr>
+              </thead>
+              <tbody>
+                {judges.length === 0 && (
+                  <tr><td className="p-4 text-gray-500">No judges registered yet.</td></tr>
+                )}
+                {judges.map(j => (
+                  <tr key={j.id} className="border-t border-gray-200">
+                    <td className="p-3">{j.name || 'Unnamed'}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
           </section>
         )}
-        {activeTab === 'timeline' && (
-          <section>
-            <h2 className="text-2xl font-semibold mb-6">Event Timeline & Announcements</h2>
-            <AnnouncementsForm onSubmit={handleAnnouncementSubmit} />
-            <AnnouncementsList announcements={announcements} />
-          </section>
-        )}
-        {activeTab === 'leaderboard' && (
-          <section>
-            <h2 className="text-2xl font-semibold mb-4">🏆 Live Leaderboard</h2>
-            <Leaderboard leaderboard={leaderboard} />
+
+        {tab === 'leaderboard' && (
+          <section className="bg-white border border-gray-200 rounded overflow-hidden">
+            <table className="w-full text-sm">
+              <thead className="bg-gray-100 text-left">
+                <tr>
+                  <th className="p-3 w-12">#</th>
+                  <th className="p-3">Project</th>
+                  <th className="p-3">Team</th>
+                  <th className="p-3 text-right">Score</th>
+                  <th className="p-3 text-right">Judges</th>
+                </tr>
+              </thead>
+              <tbody>
+                {leaderboard.length === 0 && (
+                  <tr><td colSpan={5} className="p-4 text-gray-500">No approved projects yet.</td></tr>
+                )}
+                {leaderboard.map((r, i) => (
+                  <tr key={r.submission_id} className="border-t border-gray-200">
+                    <td className="p-3">{i + 1}</td>
+                    <td className="p-3">{r.title}</td>
+                    <td className="p-3">{r.team_name}</td>
+                    <td className="p-3 text-right">{r.avg_score}</td>
+                    <td className="p-3 text-right">{r.judge_count}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
           </section>
         )}
       </main>
-      {reviewSubmission && (
-        <ReviewModal
-          submission={reviewSubmission}
-          adminComments={adminComments}
-          setAdminComments={setAdminComments}
-          onClose={closeReviewModal}
-          onUpdateStatus={updateSubmissionStatus}
-        />
+
+      {selected && (
+        <div
+          className="fixed inset-0 bg-black/40 flex items-center justify-center p-4"
+          onClick={() => setSelected(null)}
+        >
+          <div
+            className="bg-white rounded-lg border border-gray-200 w-full max-w-lg p-5 space-y-3 text-sm max-h-[90vh] overflow-y-auto"
+            onClick={e => e.stopPropagation()}
+          >
+            <h2 className="font-semibold text-lg">{selected.title}</h2>
+            <p><strong>Team:</strong> {selected.teams?.name ?? '-'}</p>
+            <p><strong>Problem:</strong> {selected.problem}</p>
+            <p className="whitespace-pre-wrap">{selected.description}</p>
+            <p>
+              <a href={selected.github_url} target="_blank" rel="noreferrer" className="underline">GitHub</a>
+              {selected.demo_url && (
+                <> · <a href={selected.demo_url} target="_blank" rel="noreferrer" className="underline">Demo</a></>
+              )}
+            </p>
+            <textarea
+              className={input}
+              rows={3}
+              placeholder="Comment for the team (optional)"
+              value={comment}
+              onChange={e => setComment(e.target.value)}
+            />
+            {error && <p className="text-red-600">{error}</p>}
+            <div className="flex gap-2">
+              <button
+                onClick={() => decide('approved')}
+                className="bg-gray-900 text-white rounded px-4 py-2 font-medium hover:bg-gray-700"
+              >
+                Approve
+              </button>
+              <button
+                onClick={() => decide('rejected')}
+                className="border border-gray-300 rounded px-4 py-2 font-medium hover:bg-gray-100"
+              >
+                Reject
+              </button>
+              <button onClick={() => setSelected(null)} className="px-4 py-2 underline">
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
       )}
-    </>
+    </div>
   );
 }
