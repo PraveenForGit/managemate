@@ -3,6 +3,8 @@
 import { useEffect, useState, FormEvent } from 'react';
 import { useRouter } from 'next/navigation';
 import { supabase } from '@/lib/supabase';
+import { checkLinks, type LinkStatus } from '@/lib/checkLinks';
+import { LinkBadge } from '@/components/LinkBadge';
 
 type Profile = { id: string; name: string; role: string };
 type Team = { id: string; name: string };
@@ -16,6 +18,9 @@ type Submission = {
   description: string;
   status: 'pending' | 'approved' | 'rejected';
   admin_comment: string | null;
+  github_status: LinkStatus | null;
+  demo_status: LinkStatus | null;
+  links_checked_at: string | null;
 };
 type Row = {
   submission_id: string;
@@ -26,7 +31,7 @@ type Row = {
 };
 
 const input =
-  'w-full border border-gray-300 rounded px-3 py-2 text-sm focus:outline-none focus:border-gray-900';
+  'w-full border border-gray-300 rounded px-3 py-2 text-sm text-gray-900 bg-white placeholder-gray-400 focus:outline-none focus:border-gray-900';
 const button =
   'bg-gray-900 text-white rounded px-4 py-2 text-sm font-medium hover:bg-gray-700 disabled:opacity-50';
 
@@ -40,6 +45,8 @@ export default function ParticipantDashboard() {
   const [tab, setTab] = useState<'team' | 'submission' | 'leaderboard'>('team');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const [editing, setEditing] = useState(false);
+  const [linkForm, setLinkForm] = useState({ github_url: '', demo_url: '' });
 
   const [teamName, setTeamName] = useState('');
   const [form, setForm] = useState({
@@ -117,15 +124,45 @@ export default function ParticipantDashboard() {
     if (!profile || !team) return;
     setError('');
 
-    const { error: err } = await supabase.from('submissions').insert({
-      team_id: team.id,
-      title: form.title,
-      problem: form.problem,
-      github_url: form.github_url,
-      demo_url: form.demo_url || null,
-      description: form.description,
+    const { data: created, error: err } = await supabase
+      .from('submissions')
+      .insert({
+        team_id: team.id,
+        title: form.title,
+        problem: form.problem,
+        github_url: form.github_url,
+        demo_url: form.demo_url || null,
+        description: form.description,
+      })
+      .select('id')
+      .single();
+    if (err) { setError(err.message); return; }
+
+    await checkLinks(created.id);
+    await loadAll(profile.id);
+  }
+
+  async function recheck() {
+    if (!submission || !profile) return;
+    setError('');
+    await checkLinks(submission.id);
+    await loadAll(profile.id);
+  }
+
+  async function saveLinks(e: FormEvent) {
+    e.preventDefault();
+    if (!submission || !profile) return;
+    setError('');
+
+    const { error: err } = await supabase.rpc('update_submission_links', {
+      p_submission: submission.id,
+      p_github: linkForm.github_url,
+      p_demo: linkForm.demo_url,
     });
     if (err) { setError(err.message); return; }
+
+    await checkLinks(submission.id);
+    setEditing(false);
     await loadAll(profile.id);
   }
 
@@ -207,12 +244,59 @@ export default function ParticipantDashboard() {
                 </div>
                 <p><strong>Problem:</strong> {submission.problem}</p>
                 <p className="whitespace-pre-wrap">{submission.description}</p>
-                <p>
-                  <a href={submission.github_url} target="_blank" rel="noreferrer" className="underline">GitHub</a>
+
+                <div className="space-y-1">
+                  <p>
+                    GitHub:{' '}
+                    <a href={submission.github_url} target="_blank" rel="noreferrer" className="underline">
+                      {submission.github_url}
+                    </a>{' '}
+                    <LinkBadge status={submission.github_status} />
+                  </p>
                   {submission.demo_url && (
-                    <> · <a href={submission.demo_url} target="_blank" rel="noreferrer" className="underline">Demo</a></>
+                    <p>
+                      Demo:{' '}
+                      <a href={submission.demo_url} target="_blank" rel="noreferrer" className="underline">
+                        {submission.demo_url}
+                      </a>{' '}
+                      <LinkBadge status={submission.demo_status} />
+                    </p>
                   )}
-                </p>
+                </div>
+
+                {editing ? (
+                  <form onSubmit={saveLinks} className="space-y-2 max-w-md">
+                    <input className={input} type="url" required placeholder="GitHub URL"
+                      value={linkForm.github_url}
+                      onChange={e => setLinkForm({ ...linkForm, github_url: e.target.value })} />
+                    <input className={input} type="url" placeholder="Demo URL (optional)"
+                      value={linkForm.demo_url}
+                      onChange={e => setLinkForm({ ...linkForm, demo_url: e.target.value })} />
+                    <div className="flex gap-3">
+                      <button className={button}>Save and check</button>
+                      <button type="button" className="underline" onClick={() => setEditing(false)}>
+                        Cancel
+                      </button>
+                    </div>
+                  </form>
+                ) : (
+                  <div className="flex gap-4">
+                    <button onClick={recheck} className="underline">Re-check links</button>
+                    <button
+                      onClick={() => {
+                        setLinkForm({
+                          github_url: submission.github_url,
+                          demo_url: submission.demo_url ?? '',
+                        });
+                        setEditing(true);
+                      }}
+                      className="underline"
+                    >
+                      Edit links
+                    </button>
+                  </div>
+                )}
+
                 {submission.admin_comment && (
                   <p className="bg-gray-100 rounded p-3">
                     <strong>Admin comment:</strong> {submission.admin_comment}
