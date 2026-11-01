@@ -1,252 +1,273 @@
 'use client';
 
-import React, { useState, useEffect, FormEvent, ChangeEvent } from 'react';
+import { useEffect, useState, FormEvent } from 'react';
+import { useRouter } from 'next/navigation';
+import { supabase } from '@/lib/supabase';
 
-import { Team, User, Submission, MentorRequest, LeaderboardItem } from '@/types';
+type Profile = { id: string; name: string; role: string };
+type Team = { id: string; name: string };
+type MemberRow = { profiles: { name: string } | null };
+type Submission = {
+  id: string;
+  title: string;
+  problem: string;
+  github_url: string;
+  demo_url: string | null;
+  description: string;
+  status: 'pending' | 'approved' | 'rejected';
+  admin_comment: string | null;
+};
+type Row = {
+  submission_id: string;
+  title: string;
+  team_name: string;
+  avg_score: number;
+  judge_count: number;
+};
 
-import { Header } from '@/components/participantDashboard/Header';
-import { Tabs } from '@/components/participantDashboard/Tabs';
-import { TeamManagement } from '@/components/participantDashboard/TeamManagement';
-import { SubmissionTab } from '@/components/participantDashboard/SubmissionTab';
-import { MentorSupport } from '@/components/participantDashboard/MentorSupport';
-import { Leaderboard } from '@/components/participantDashboard/Leaderboard';
+const input =
+  'w-full border border-gray-300 rounded px-3 py-2 text-sm focus:outline-none focus:border-gray-900';
+const button =
+  'bg-gray-900 text-white rounded px-4 py-2 text-sm font-medium hover:bg-gray-700 disabled:opacity-50';
 
-type Tab = 'team' | 'submission' | 'mentor' | 'leaderboard';
+export default function ParticipantDashboard() {
+  const router = useRouter();
+  const [profile, setProfile] = useState<Profile | null>(null);
+  const [team, setTeam] = useState<Team | null>(null);
+  const [members, setMembers] = useState<string[]>([]);
+  const [submission, setSubmission] = useState<Submission | null>(null);
+  const [leaderboard, setLeaderboard] = useState<Row[]>([]);
+  const [tab, setTab] = useState<'team' | 'submission' | 'leaderboard'>('team');
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
 
-const ParticipantDashboardPage = () => {
-  const [activeTab, setActiveTab] = useState<Tab>('team');
-  const [currentUser, setCurrentUser] = useState<User | null>(null);
-  const [currentTeam, setCurrentTeam] = useState<Team | null>(null);
-  const [teamMembers, setTeamMembers] = useState<string[]>([]);
-  const [submissions, setSubmissions] = useState<Submission[]>([]);
-  const [currentSubmission, setCurrentSubmission] = useState<Submission | null>(null);
-  const [mentorRequests, setMentorRequests] = useState<MentorRequest[]>([]);
-  const [leaderboard, setLeaderboard] = useState<LeaderboardItem[]>([]);
-
-  const [teamNameInput, setTeamNameInput] = useState('');
-  const [teamMembersInput, setTeamMembersInput] = useState('');
-  const [submissionData, setSubmissionData] = useState({
-    projectTitle: '',
-    problemStatement: '',
-    githubLink: '',
-    deploymentLink: '',
-    demoVideo: '',
-    readme: '',
-    buildLogs: ''
+  const [teamName, setTeamName] = useState('');
+  const [form, setForm] = useState({
+    title: '', problem: '', github_url: '', demo_url: '', description: '',
   });
-  const [mentorRequestData, setMentorRequestData] = useState({
-    category: '',
-    description: ''
-  });
 
-  // Load current user from localStorage(Can connect any Database later)
+  async function loadAll(userId: string) {
+    const { data: tm } = await supabase
+      .from('team_members')
+      .select('team_id, teams(id, name)')
+      .eq('user_id', userId)
+      .maybeSingle();
+
+    const t = (tm?.teams as unknown as Team | null) ?? null;
+    setTeam(t);
+
+    if (t) {
+      const { data: mem } = await supabase
+        .from('team_members')
+        .select('profiles(name)')
+        .eq('team_id', t.id);
+      const rows = (mem ?? []) as unknown as MemberRow[];
+      setMembers(rows.map(m => m.profiles?.name || 'Unnamed'));
+
+      const { data: sub } = await supabase
+        .from('submissions')
+        .select('*')
+        .eq('team_id', t.id)
+        .maybeSingle();
+      setSubmission(sub as Submission | null);
+    }
+
+    const { data: lb } = await supabase.from('leaderboard').select('*');
+    setLeaderboard((lb ?? []) as Row[]);
+  }
+
   useEffect(() => {
-    const savedUser = localStorage.getItem('currentUser');
-    if (!savedUser) {
-      window.location.replace('/');
-      return;
-    }
-    const user: User = JSON.parse(savedUser);
-    if (user?.role !== 'participant') {
-      window.location.replace('/');
-      return;
-    }
-    setCurrentUser(user);
-  }, []);
+    (async () => {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) { router.replace('/auth'); return; }
 
-  // Loads participant data after currentUser is set
-  useEffect(() => {
-    if (!currentUser) return;
+      const { data: p } = await supabase
+        .from('profiles').select('*').eq('id', user.id).single();
+      if (!p || p.role !== 'participant') { router.replace('/auth'); return; }
 
-    const teams: Team[] = JSON.parse(localStorage.getItem('teams') || '[]');
-    const team = teams.find(t => t.members.includes(currentUser.id));
-    if (team) {
-      setCurrentTeam(team);
-      setTeamMembers(team.members);
-    }
+      setProfile(p);
+      await loadAll(user.id);
+      setLoading(false);
+    })();
+  }, [router]);
 
-    const submissionsData: Submission[] = JSON.parse(localStorage.getItem('submissions') || '[]');
-    if (team) {
-      const teamSubmission = submissionsData.find(s => s.teamId === team.id);
-      if (teamSubmission) setCurrentSubmission(teamSubmission);
-    }
-    setSubmissions(submissionsData);
-
-    const requests: MentorRequest[] = JSON.parse(localStorage.getItem('mentorRequests') || '[]');
-    if (team) {
-      setMentorRequests(requests.filter(r => r.teamId === team.id));
-    }
-
-    setLeaderboard(calculateLeaderboard());
-  }, [currentUser]);
-
-  function calculateLeaderboard(): LeaderboardItem[] {
-    const submissionsData: Submission[] = JSON.parse(localStorage.getItem('submissions') || '[]');
-    const teamsData: Team[] = JSON.parse(localStorage.getItem('teams') || '[]');
-    const scores = JSON.parse(localStorage.getItem('scores') || '[]');
-
-    const approvedSubs = submissionsData.filter(s => s.status === 'approved');
-
-    const lb = approvedSubs.map(sub => {
-      const subScores = scores.filter((score: any) => score.submissionId === sub.id);
-      const totalScore = subScores.reduce((sum: number, s: any) => sum + s.total, 0);
-      const avgScore = subScores.length === 0 ? 0 : totalScore / subScores.length;
-      const team = teamsData.find(t => t.id === sub.teamId);
-
-      return {
-        submission: sub,
-        team,
-        averageScore: Math.round(avgScore * 100) / 100,
-        judgeCount: subScores.length
-      };
-    }).sort((a, b) => b.averageScore - a.averageScore);
-
-    return lb;
-  }
-
-  // --- Handlers ---
-
-  function handleCreateTeam(name: string, members: string[]) {
-    if (!name.trim() || !currentUser) return;
-    const teams: Team[] = JSON.parse(localStorage.getItem('teams') || '[]');
-    const newTeam: Team = {
-      id: Date.now().toString(),
-      name: name.trim(),
-      members: [currentUser.id, ...members]
-    };
-    teams.push(newTeam);
-    localStorage.setItem('teams', JSON.stringify(teams));
-    setCurrentTeam(newTeam);
-    setTeamMembers(newTeam.members);
-    setTeamNameInput('');
-    setTeamMembersInput('');
-  }
-
-  function handleSubmissionChange(e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) {
-    setSubmissionData(prev => ({
-      ...prev,
-      [e.target.id]: e.target.value
-    }));
-  }
-
-  function handleSubmissionSubmit(e: FormEvent) {
+  async function createTeam(e: FormEvent) {
     e.preventDefault();
-    if (!currentTeam || !currentUser) return;
+    if (!profile) return;
+    setError('');
 
-    // Validates wheather all the required fields are submitted or not
-    if (!submissionData.projectTitle || !submissionData.problemStatement || !submissionData.githubLink || !submissionData.readme) {
-      alert('Please fill in all required fields.');
-      return;
-    }
+    const { data: t, error: e1 } = await supabase
+      .from('teams')
+      .insert({ name: teamName, created_by: profile.id })
+      .select()
+      .single();
+    if (e1) { setError(e1.message); return; }
 
-    const submissions: Submission[] = JSON.parse(localStorage.getItem('submissions') || '[]');
-    const newSubmission: Submission = {
-      id: Date.now().toString(),
-      teamId: currentTeam.id,
-      userId: currentUser.id,
-      projectTitle: submissionData.projectTitle,
-      problemStatement: submissionData.problemStatement,
-      githubLink: submissionData.githubLink,
-      deploymentLink: submissionData.deploymentLink,
-      demoVideo: submissionData.demoVideo,
-      readme: submissionData.readme,
-      buildLogs: submissionData.buildLogs,
-      adminComments: '',
-      status: 'pending',
-      createdAt: new Date().toISOString(),
-      updatedAt: ''
-    };
-    submissions.push(newSubmission);
-    localStorage.setItem('submissions', JSON.stringify(submissions));
-    setCurrentSubmission(newSubmission);
-    alert('Project submitted successfully! Waiting for admin approval.');
+    const { error: e2 } = await supabase
+      .from('team_members')
+      .insert({ team_id: t.id, user_id: profile.id });
+    if (e2) { setError(e2.message); return; }
+
+    setTeamName('');
+    await loadAll(profile.id);
   }
 
-  function handleMentorRequestChange(e: React.ChangeEvent<HTMLSelectElement | HTMLTextAreaElement>) {
-    setMentorRequestData(prev => ({
-      ...prev,
-      [e.target.id]: e.target.value
-    }));
-  }
-
-  function handleMentorRequestSubmit(e: FormEvent) {
+  async function submitProject(e: FormEvent) {
     e.preventDefault();
-    if (!currentTeam) return;
-    if (!mentorRequestData.category || !mentorRequestData.description) {
-      alert('Please fill in all fields.');
-      return;
-    }
+    if (!profile || !team) return;
+    setError('');
 
-    const requests: MentorRequest[] = JSON.parse(localStorage.getItem('mentorRequests') || '[]');
-    const newRequest: MentorRequest = {
-      id: Date.now().toString(),
-      teamId: currentTeam.id,
-      category: mentorRequestData.category,
-      description: mentorRequestData.description,
-      status: 'pending',
-      createdAt: new Date().toISOString()
-    };
-    requests.push(newRequest);
-    localStorage.setItem('mentorRequests', JSON.stringify(requests));
-    setMentorRequests(prev => [...prev, newRequest]);
-    setMentorRequestData({ category: '', description: '' });
-    alert('Mentor support request submitted!');
+    const { error: err } = await supabase.from('submissions').insert({
+      team_id: team.id,
+      title: form.title,
+      problem: form.problem,
+      github_url: form.github_url,
+      demo_url: form.demo_url || null,
+      description: form.description,
+    });
+    if (err) { setError(err.message); return; }
+    await loadAll(profile.id);
   }
 
-  function handleLogout() {
-    localStorage.removeItem('currentUser');
-    window.location.replace('/');
+  async function logout() {
+    await supabase.auth.signOut();
+    router.replace('/');
   }
+
+  if (loading) return <p className="p-6 text-gray-600">Loading...</p>;
+
+  const statusStyle = {
+    pending: 'bg-yellow-100 text-yellow-800',
+    approved: 'bg-green-100 text-green-800',
+    rejected: 'bg-red-100 text-red-800',
+  };
 
   return (
-    <>
-      <Header user={currentUser} onLogout={handleLogout} />
-      <Tabs activeTab={activeTab} onChange={setActiveTab} />
+    <div className="min-h-screen bg-gray-50 text-gray-900">
+      <header className="bg-white border-b border-gray-200">
+        <div className="max-w-4xl mx-auto px-4 py-3 flex justify-between items-center">
+          <span className="font-semibold">ManageMate</span>
+          <div className="flex items-center gap-4 text-sm">
+            <span className="text-gray-600">{profile?.name} (participant)</span>
+            <button onClick={logout} className="underline">Log out</button>
+          </div>
+        </div>
+        <nav className="max-w-4xl mx-auto px-4 flex gap-6 text-sm">
+          {(['team', 'submission', 'leaderboard'] as const).map(t => (
+            <button
+              key={t}
+              onClick={() => { setTab(t); setError(''); }}
+              className={`py-2 capitalize ${
+                tab === t
+                  ? 'border-b-2 border-gray-900 font-medium'
+                  : 'text-gray-500'
+              }`}
+            >
+              {t}
+            </button>
+          ))}
+        </nav>
+      </header>
 
-      <main className="p-6 max-w-5xl mx-auto">
-        {activeTab === 'team' && (
-          <section className="card bg-slate-800 border border-slate-700 rounded-md p-6">
-            <h2 className="card-title text-2xl font-semibold mb-4">Team Management</h2>
-            <TeamManagement currentTeam={currentTeam} teamMembers={teamMembers} onCreateTeam={handleCreateTeam} />
+      <main className="max-w-4xl mx-auto p-4 space-y-4">
+        {error && <p className="text-sm text-red-600">{error}</p>}
+
+        {tab === 'team' && (
+          <section className="bg-white border border-gray-200 rounded p-5">
+            {team ? (
+              <>
+                <h2 className="font-semibold text-lg mb-2">{team.name}</h2>
+                <p className="text-sm text-gray-600 mb-1">Members</p>
+                <ul className="list-disc list-inside text-sm">
+                  {members.map((m, i) => <li key={i}>{m}</li>)}
+                </ul>
+              </>
+            ) : (
+              <form onSubmit={createTeam} className="space-y-3 max-w-sm">
+                <h2 className="font-semibold text-lg">Create a team</h2>
+                <input className={input} placeholder="Team name" required
+                  value={teamName} onChange={e => setTeamName(e.target.value)} />
+                <button className={button}>Create team</button>
+              </form>
+            )}
           </section>
         )}
 
-        {activeTab === 'submission' && (
-          <section className="card bg-slate-800 border border-slate-700 rounded-md p-6">
-            <h2 className="card-title text-2xl font-semibold mb-4">Project Submission</h2>
-            <SubmissionTab
-              currentTeam={currentTeam}
-              currentSubmission={currentSubmission}
-              submissionData={submissionData}
-              onSubmissionChange={handleSubmissionChange}
-              onSubmissionSubmit={handleSubmissionSubmit}
-              userExists={!!currentUser}
-            />
+        {tab === 'submission' && (
+          <section className="bg-white border border-gray-200 rounded p-5">
+            {!team ? (
+              <p className="text-sm text-gray-600">Create a team first.</p>
+            ) : submission ? (
+              <div className="space-y-2 text-sm">
+                <div className="flex items-center gap-3">
+                  <h2 className="font-semibold text-lg">{submission.title}</h2>
+                  <span className={`px-2 py-0.5 rounded text-xs ${statusStyle[submission.status]}`}>
+                    {submission.status}
+                  </span>
+                </div>
+                <p><strong>Problem:</strong> {submission.problem}</p>
+                <p className="whitespace-pre-wrap">{submission.description}</p>
+                <p>
+                  <a href={submission.github_url} target="_blank" rel="noreferrer" className="underline">GitHub</a>
+                  {submission.demo_url && (
+                    <> · <a href={submission.demo_url} target="_blank" rel="noreferrer" className="underline">Demo</a></>
+                  )}
+                </p>
+                {submission.admin_comment && (
+                  <p className="bg-gray-100 rounded p-3">
+                    <strong>Admin comment:</strong> {submission.admin_comment}
+                  </p>
+                )}
+              </div>
+            ) : (
+              <form onSubmit={submitProject} className="space-y-3 max-w-lg">
+                <h2 className="font-semibold text-lg">Submit your project</h2>
+                <input className={input} placeholder="Project title" required
+                  value={form.title} onChange={e => setForm({ ...form, title: e.target.value })} />
+                <textarea className={input} rows={3} placeholder="Problem statement" required
+                  value={form.problem} onChange={e => setForm({ ...form, problem: e.target.value })} />
+                <input className={input} type="url" placeholder="GitHub URL" required
+                  value={form.github_url} onChange={e => setForm({ ...form, github_url: e.target.value })} />
+                <input className={input} type="url" placeholder="Demo URL (optional)"
+                  value={form.demo_url} onChange={e => setForm({ ...form, demo_url: e.target.value })} />
+                <textarea className={input} rows={5} placeholder="Description" required
+                  value={form.description} onChange={e => setForm({ ...form, description: e.target.value })} />
+                <button className={button}>Submit</button>
+              </form>
+            )}
           </section>
         )}
 
-        {activeTab === 'mentor' && (
-          <section className="card bg-slate-800 border border-slate-700 rounded-md p-6">
-            <h2 className="card-title text-2xl font-semibold mb-4">Request Mentor Support</h2>
-            <MentorSupport
-              currentTeamExists={!!currentTeam}
-              mentorRequests={mentorRequests}
-              mentorData={mentorRequestData}
-              onMentorChange={handleMentorRequestChange}
-              onMentorSubmit={handleMentorRequestSubmit}
-            />
-          </section>
-        )}
-
-        {activeTab === 'leaderboard' && (
-          <section className="card bg-slate-800 border border-slate-700 rounded-md p-6">
-            <h2 className="card-title text-2xl font-semibold mb-4">🏆 Live Leaderboard</h2>
-            <Leaderboard leaderboard={leaderboard} />
+        {tab === 'leaderboard' && (
+          <section className="bg-white border border-gray-200 rounded overflow-hidden">
+            <table className="w-full text-sm">
+              <thead className="bg-gray-100 text-left">
+                <tr>
+                  <th className="p-3 w-12">#</th>
+                  <th className="p-3">Project</th>
+                  <th className="p-3">Team</th>
+                  <th className="p-3 text-right">Score</th>
+                  <th className="p-3 text-right">Judges</th>
+                </tr>
+              </thead>
+              <tbody>
+                {leaderboard.length === 0 && (
+                  <tr><td colSpan={5} className="p-4 text-gray-500">No scored projects yet.</td></tr>
+                )}
+                {leaderboard.map((r, i) => (
+                  <tr key={r.submission_id} className="border-t border-gray-200">
+                    <td className="p-3">{i + 1}</td>
+                    <td className="p-3">{r.title}</td>
+                    <td className="p-3">{r.team_name}</td>
+                    <td className="p-3 text-right">{r.avg_score}</td>
+                    <td className="p-3 text-right">{r.judge_count}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
           </section>
         )}
       </main>
-    </>
+    </div>
   );
-};
-
-export default ParticipantDashboardPage;
+}
